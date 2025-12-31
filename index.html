@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoEq.app for Pro-Q 4</title>
+  <meta property="og:title" content="AutoEq.app for Pro-Q 4">
+  <meta property="og:description" content="Convert data from AutoEq.app into Pro-Q 4 presets.">
+  <meta property="og:url" content="https://poss.dog/autoeq">
+  <meta property="og:type" content="website">
+  <meta name="twitter:title" content="AutoEq.app for Pro-Q 4">
+  <meta name="twitter:description" content="Convert data from AutoEq.app into Pro-Q 4 presets.">
+  <link rel="stylesheet"
+    href="https://fontlay.com/css2?family=Victor+Mono:ital,wght@0,100..700;1,100..700&amp;display=swap">
+
+  <style>
+    :root {
+      --bg1: #11111b;
+      --bg2: #1e1e2e;
+      --fg1: #cdd6f4;
+      --fg2: #99947c;
+
+      --blue: #89b4fa;
+    }
+
+    * {
+      font-weight: 300;
+
+      &,
+      input::file-selector-button {
+        font-family: "Victor Mono", monospace;
+      }
+    }
+
+    input::file-selector-button,
+    button {
+      border: none;
+      background-color: var(--blue);
+      color: var(--bg1);
+      padding: 0.5em 1em 0.5em 1em;
+      font-weight: 700;
+    }
+
+    input::file-selector-button:hover,
+    button:hover {
+      background-color: var(--fg1);
+      cursor: pointer;
+    }
+
+    body {
+      background: radial-gradient(at top left, var(--bg1), var(--bg2));
+      color: var(--fg1);
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    a {
+      background: none;
+      color: var(--blue);
+      text-decoration: underline wavy var(--blue) 1px;
+    }
+
+    a:hover {
+      background: var(--fg1);
+      color: var(--bg1);
+      text-decoration: underline wavy transparent 1px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root" style="width: 100vw; height: 100vh;">
+    <h1>AutoEq.app for Pro-Q 4</h1>
+    <h3>Instructions</h3>
+    <ol>
+      <li>
+        <details>
+          <summary>
+            Go to <a href="https://autoeq.app/" target="_blank">autoeq.app</a> and select your headphones using the
+            search
+            bar at the top.
+          </summary>
+          <ol type="a">
+            <li>Use the Profiles section on the left to customize your desired target curve.</li>
+            <li>On the right-hand section, select <u>EqualizerAPO ParametricEq</u> as your equalizer app and enter your
+              desired sample rate.</li>
+            <li>Click the download button at the bottom of the right-hand section. You should receive a file ending with
+              <u>ParametricEq.txt</u>.
+            </li>
+          </ol>
+        </details>
+      </li>
+      <li>Click the <u>Choose Files</u> button below to select your EQ file(s).</li>
+      <li>Click the <u>Convert</u> button below. Your Pro-Q 4 preset files should download automatically.</li>
+      <li>
+        <details>
+          <summary>Load your new preset(s) in Pro-Q 4.</summary>
+          <ol type="a">
+            <li>Locate your Pro-Q 4 presets folder. On Windows, this is <u>Documents\FabFilter\Pro-Q 4</u>.</li>
+            <li>If you have more than one set of headphones and/or want more than one target curve option, consider
+              creating a
+              new subfolder (e.g. <u>Headphones</u>) to stay organized.</li>
+            <li>Move the presets (.ffp files) to this folder. You may need to reload your instance(s) of Pro-Q 4 for
+              your
+              new
+              presets to appear.</li>
+          </ol>
+        </details>
+      </li>
+      <li>Enjoy the new, corrected frequency response of your headphones!</li>
+    </ol>
+    <div class="buttons">
+      <input type="file" id="file_input" accept=".txt" multiple />
+      <span>-></span>
+      <button onclick="processFile()">Convert!</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <script>
+    // Pro-Q 4 has 24 bands, so we need to write data for each of them.
+    const NUM_FILTER_BANDS = 24;
+
+    // Converts the filter frequency to a format Pro-Q can understand
+    // Magic numbers derived from doing regressions on input/output pairs
+    function filterFreqToParam(freq) {
+      return 1.44269 * Math.log(10.472 * freq - 0.0018247) - 3.38843;
+    }
+
+    // Converts the filter Q-factor to a format Pro-Q can understand
+    function filterQToParam(q) {
+      return 53.2404 * Math.pow(q * 1.40845, 0.002544115) - 52.7413;
+    }
+
+    // Converts the filter shape to a format Pro-Q can understand
+    function filterShapeToParam(shape) {
+      const shapeMap = { "PK": 0, "LSC": 1, "HSC": 3 };
+      return shapeMap[shape] !== undefined ? shapeMap[shape] : (() => { throw new Error('Invalid filter shape'); })();
+    }
+
+    // Converts the filter gain to a format Pro-Q can understand
+    function preampToParam(gain) {
+      // This incorrectly assumes a linear transfer function, but
+      // this is plenty accurate for most input values.
+      return gain / 36;
+    }
+
+    // Given the filter parameters, place them into a format
+    // that Pro-Q can understand, converting where necessary.
+    function formatFilterParams(i, used, freq, gain, q, shape) {
+      return `Band ${i + 1} Used=${+used}\n` +
+        `Band ${i + 1} Enabled=1\n` +
+        `Band ${i + 1} Frequency=${filterFreqToParam(freq)}\n` +
+        `Band ${i + 1} Gain=${gain}\n` +
+        `Band ${i + 1} Q=${filterQToParam(q)}\n` +
+        `Band ${i + 1} Shape=${filterShapeToParam(shape)}\n` +
+        `Band ${i + 1} Slope=2\n` + // 12dB/oct seems correct
+        `Band ${i + 1} Stereo Placement=2\n` +
+        `Band ${i + 1} Speakers=1\n` +
+        `Band ${i + 1} Dynamic Range=0\n` +
+        `Band ${i + 1} Dynamics Enabled=1\n` +
+        `Band ${i + 1} Dynamics Auto=1\n` +
+        `Band ${i + 1} Threshold=1\n` +
+        `Band ${i + 1} Attack=50\n` +
+        `Band ${i + 1} Release=50\n` +
+        `Band ${i + 1} External Side Chain=0\n` +
+        `Band ${i + 1} Side Chain Filtering=0\n` +
+        `Band ${i + 1} Side Chain Low Frequency=6.64385604858398\n` +
+        `Band ${i + 1} Side Chain High Frequency=11.5507469177246\n` +
+        `Band ${i + 1} Side Chain Audition=0\n` +
+        `Band ${i + 1} Spectral Enabled=0\n` +
+        `Band ${i + 1} Spectral Density=50\n` +
+        `Band ${i + 1} Solo=0\n`;
+    }
+
+    // The main event: Get file input and perform the conversion(s)
+    async function processFile() {
+      const fileInput = document.getElementById('file_input');
+      const statusDiv = document.getElementById('status');
+      const files = fileInput.files;
+
+      if (!files || files.length === 0) {
+        statusDiv.textContent = 'Please select at least one file.';
+        return;
+      }
+
+      statusDiv.textContent = `Processing ${files.length} file(s)...`;
+
+      const processFilesSequentially = async () => {
+        for (let j = 0; j < files.length; j++) {
+          const file = files[j];
+          const content = await file.text();
+          const lines = content.split('\n');
+
+          // Extract preamp value
+          const preampMatch = lines[0].match(/Preamp: ([+-]?\d+(\.\d+)?) dB/);
+          const preamp = preampMatch ? parseFloat(preampMatch[1]) : (() => { throw new Error("Missing expected 'Preamp' value"); })();;
+
+          const filters = [];
+          const filterPattern = /Filter \d+: ON (\w+) Fc (\d+(\.\d+)?) Hz Gain ([+-]?\d+(\.\d+)?) dB Q (\d+(\.\d+)?)/;
+
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            const match = line.match(filterPattern);
+            if (match) {
+              filters.push({
+                shape: match[1],
+                freq: parseFloat(match[2]),
+                gain: parseFloat(match[4]),
+                q: parseFloat(match[6])
+              });
+            }
+            else if (line !== "") {
+              throw new Error("Expected filter data, got unexpected input");
+            }
+          }
+
+          // Generate content of .ffp file
+          let ffpContent = "[Preset]\n" +
+            "Signature=FQ4p\n" +
+            "Version=4\n" +
+            "Author=autoeq.app\n" +
+            "Description=\"Automatically generated at https://poss.dog/autoeq\"\n\n" +
+            "[Parameters]\n";
+
+          for (let i = 0; i < NUM_FILTER_BANDS; i++) {
+            if (i < filters.length) {
+              const f = filters[i];
+              ffpContent += formatFilterParams(i, true, f.freq, f.gain, f.q, f.shape)
+            } else {
+              // Default parameters for unused bands
+              ffpContent += formatFilterParams(i, false, 500 * (i + 1), 0, 0.71, "PK")
+            }
+          }
+
+          // Global parameters
+          ffpContent += `Processing Mode=0\n` +
+            `Processing Resolution=1\n` +
+            `Character=0\n` +
+            `Gain Scale=1\n` +
+            `Output Level=${preampToParam(preamp)}\n` +
+            `Output Pan=0\n` +
+            `Output Pan Mode=0\n` +
+            `Bypass=0\n` +
+            `Output Invert Phase=0\n` +
+            `Auto Gain=0\n` +
+            `Analyzer Show Pre-Processing=1\n` +
+            `Analyzer Show Post-Processing=1\n` +
+            `Analyzer Show External Spectrum=1\n` +
+            `Analyzer External Spectrum=-1\n` +
+            `Analyzer Range=2\n` +
+            `Analyzer Resolution=3\n` +
+            `Analyzer Speed=2\n` +
+            `Analyzer Tilt=0\n` +
+            `Analyzer Freeze=0\n` +
+            `Analyzer Show Collisions=0\n` +
+            `Spectrum Grab=1\n` +
+            `Display Range=2\n` +
+            `Receive Midi=0\n` +
+            `Solo Gain=0\n`;
+
+          // Spectral tilt for all bands
+          for (let i = 0; i < NUM_FILTER_BANDS; i++) {
+            ffpContent += `Band ${i + 1} Spectral Tilt=${i < filters.length ? 1 : 0}\n`;
+          }
+
+          // Derive output filename
+          let outputFilename = file.name.replace(/ ParametricEq\.txt$/, '.ffp');
+          if (outputFilename === file.name) outputFilename += '.ffp';
+
+          // Trigger download
+          const blob = new Blob([ffpContent], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = outputFilename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          // Add delay between downloads so we don't get blocked
+          if (j < files.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        statusDiv.textContent = 'All conversions complete!';
+      };
+
+      processFilesSequentially().catch(error => {
+        statusDiv.textContent = 'Error processing file(s). Are they in the right format?';
+        console.error(error);
+      });
+    }
+  </script>
+</body>
+
+</html>
