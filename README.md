@@ -1,5 +1,5 @@
 # autoeq-for-proq4
 
-> 🤖 This project was made by a human with LLM assistance.
+> 🤖 This code was written by a human using LLM assistance.
 
 Convert data from AutoEq.app into Pro-Q 4 presets.
